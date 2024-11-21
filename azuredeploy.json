@@ -1,0 +1,177 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "location": {
+        "type": "string",
+        "defaultValue": "Germany West Central",
+        "allowedValues": [
+          "Germany West Central",
+          "West Europe",
+          "North Europe",
+          "East US",
+          "West US"
+        ],
+        "metadata": {
+          "description": "Location to deploy"
+        }
+      },
+      "adminUsername": {
+        "type": "string",
+        "metadata": {
+          "description": "Admin username for the VMs"
+        }
+      },
+      "adminPassword": {
+        "type": "securestring",
+        "metadata": {
+          "description": "Admin password for the VMs"
+        }
+      },
+      "domainName": {
+        "type": "string",
+        "metadata": {
+          "description": "Domain name for Active Directory"
+        }
+      }
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Resources/resourceGroups",
+        "apiVersion": "2021-04-01",
+        "location": "[parameters('location')]",
+        "properties": {},
+        "name": "rg-astares-infra"
+      },
+      {
+        "type": "Microsoft.Network/virtualNetworks",
+        "apiVersion": "2021-02-01",
+        "location": "[parameters('location')]",
+        "name": "adServerVnet",
+        "properties": {
+          "addressSpace": {
+            "addressPrefixes": [
+              "192.168.32.0/24"
+            ]
+          },
+          "subnets": [
+            {
+              "name": "adServerSubnet",
+              "properties": {
+                "addressPrefix": "192.168.32.0/24"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          "[resourceId('Microsoft.Resources/resourceGroups', 'rg-astares-infra')]"
+        ]
+      },
+      {
+        "type": "Microsoft.Network/networkInterfaces",
+        "apiVersion": "2021-02-01",
+        "location": "[parameters('location')]",
+        "name": "[concat('nic-', 'ASTDE1-SDC01')]",
+        "properties": {
+          "ipConfigurations": [
+            {
+              "name": "ipconfig1",
+              "properties": {
+                "privateIPAddress": "192.168.32.201",
+                "privateIPAllocationMethod": "Static",
+                "subnet": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'adServerVnet', 'adServerSubnet')]"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Microsoft.Network/networkInterfaces",
+        "apiVersion": "2021-02-01",
+        "location": "[parameters('location')]",
+        "name": "[concat('nic-', 'ASTDE1-SDC02')]",
+        "properties": {
+          "ipConfigurations": [
+            {
+              "name": "ipconfig1",
+              "properties": {
+                "privateIPAddress": "192.168.32.202",
+                "privateIPAllocationMethod": "Static",
+                "subnet": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'adServerVnet', 'adServerSubnet')]"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Microsoft.Compute/virtualMachines",
+        "name": "[concat('ASTDE1-SDC0', copyIndex(1))]",
+        "apiVersion": "2021-07-01",
+        "location": "[parameters('location')]",
+        "dependsOn": [
+          "[resourceId('Microsoft.Resources/resourceGroups', 'rg-astares-infra')]",
+          "[resourceId('Microsoft.Network/virtualNetworks', 'adServerVnet')]",
+          "[resourceId('Microsoft.Network/networkInterfaces', concat('nic-', 'ASTDE1-SDC01'))]",
+          "[resourceId('Microsoft.Network/networkInterfaces', concat('nic-', 'ASTDE1-SDC02'))]"
+        ],
+        "properties": {
+          "hardwareProfile": {
+            "vmSize": "Standard_DS1_v2"
+          },
+          "osProfile": {
+            "computerName": "[concat('ASTDE1-SDC0', copyIndex(1))]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPassword')]"
+          },
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Network/networkInterfaces/nic-ASTDE1-SDC0', copyIndex(1))]"
+              }
+            ]
+          },
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "MicrosoftWindowsServer",
+              "offer": "WindowsServer",
+              "sku": "2019-Datacenter",
+              "version": "latest"
+            }
+          }
+        },
+        "copy": {
+          "name": "vmCopy",
+          "count": 2
+        }
+      },
+      {
+        "type": "Microsoft.Compute/virtualMachines/extensions",
+        "name": "[concat('ASTDE1-SDC0', copyIndex(1), '/ADDS')]",
+        "apiVersion": "2021-07-01",
+        "location": "[parameters('location')]",
+        "properties": {
+          "publisher": "Microsoft.Compute",
+          "type": "ADDSDomainController",
+          "typeHandlerVersion": "1.0",
+          "settings": {
+            "domainName": "[parameters('domainName')]",
+            "domainNetBiosName": "[parameters('domainName')]",
+            "safeModeAdminPassword": "[parameters('adminPassword')]"
+          }
+        },
+        "dependsOn": [
+          "[concat('Microsoft.Compute/virtualMachines/', 'ASTDE1-SDC0', copyIndex(1))]"
+        ],
+        "copy": {
+          "name": "extensionCopy",
+          "count": 2
+        }
+      }
+    ],
+    "outputs": {}
+  }
+  
